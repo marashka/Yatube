@@ -1,5 +1,6 @@
 import shutil
 import tempfile
+from math import ceil
 
 from django import forms
 from django.conf import settings
@@ -7,7 +8,7 @@ from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-from ..models import Follow, Post
+from ..models import Comment, Follow, Post
 from .utils import YatubeTestConstructor
 
 TEMP_MEDIA_ROOT = tempfile.mkdtemp(dir=settings.BASE_DIR)
@@ -18,10 +19,21 @@ class PostsFormTests(TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        cls.AMOUNT_USERS = 2
+        cls.AMOUNT_POSTS_EACH_USER = 12
+        cls.AMOUNT_PAGES = ceil(
+            cls.AMOUNT_USERS
+            * cls.AMOUNT_POSTS_EACH_USER
+            / settings.MAX_PAGE_AMOUNT
+        )
+        """Я попробовал создать метод который загружает все данные
+        по порядку и мне как-то не особо понравилось, по-моему гораздо
+        понятнее когда сам прописываешь, либо я саму идею
+        неправильно понял"""
         test_shell = YatubeTestConstructor()
-        test_shell.create_users(2)
+        test_shell.create_users(cls.AMOUNT_USERS)
         test_shell.create_groups(2)
-        test_shell.create_posts(12)
+        test_shell.create_posts(cls.AMOUNT_POSTS_EACH_USER)
         test_shell.uploaded_test_gif()
         cls.user_1, cls.user_2 = test_shell.get_users()
         cls.group_1, cls.group_2 = test_shell.get_groups()
@@ -63,6 +75,7 @@ class PostsFormTests(TestCase):
             ('posts/create_post.html', reverse('posts:post_create')),
             ('posts/create_post.html', reverse(
                 'posts:post_edit', kwargs={'post_id': '1'})),
+            ('posts/follow.html', reverse('posts:follow_index')),
         )
         for template, reverse_name in template_reverse_names:
             with self.subTest(reverse_name=reverse_name):
@@ -126,14 +139,30 @@ class PostsFormTests(TestCase):
         post_0 = response.context.get('page_obj').object_list[1]
         post_image_0 = post_0.image
         self.assertEqual(post_image_0, 'posts/small.gif')
+        self.assertFalse(response.context.get('following'))
+        Follow.objects.create(
+            user=self.user_1,
+            author=self.user_2
+        )
+        response_2 = self.authorized_client_1.get(reverse(
+            'posts:profile', kwargs={'username': self.user_2}))
+        self.assertTrue(response_2.context.get('following'))
 
     def test_post_detail_show_correct_context(self):
         """Шаблон post_detail сформирован с правильным контекстом."""
+        posts = PostsFormTests.posts
+        comment = Comment.objects.create(
+            post=posts[23],
+            author=self.user_2,
+            text='Коментарий'
+        )
         response = self.guest_client.get(reverse(
             'posts:post_detail', kwargs={'post_id': '1'}))
         post = response.context.get('post')
         self.assertEqual(post.id, 1)
         self.assertEqual(post.image, 'posts/small.gif')
+        comments = response.context.get('comments')
+        self.assertIn(comment, comments)
 
     def test_post_create_show_correct_form(self):
         """Шаблон post_create сформирован с правильной формой."""
@@ -142,6 +171,7 @@ class PostsFormTests(TestCase):
         form_fields = {
             'text': forms.fields.CharField,
             'group': forms.models.ModelChoiceField,
+            'image': forms.fields.ImageField,
         }
         for value, expected in form_fields.items():
             form_field = response.context.get('form').fields.get(value)
@@ -154,6 +184,7 @@ class PostsFormTests(TestCase):
         form_fields = {
             'text': forms.fields.CharField,
             'group': forms.models.ModelChoiceField,
+            'image': forms.fields.ImageField
         }
         for value, expected in form_fields.items():
             form_field = response.context.get('form').fields.get(value)
@@ -190,29 +221,39 @@ class PostsFormTests(TestCase):
 
     def test_paginator(self):
         """Пагинатор отображает правильное количество постов"""
-        number_of_posts_on_page = (10, 10, 4)
-        for page in range(3):
+        amount_users = PostsFormTests.AMOUNT_USERS
+        amount_posts_each_user = PostsFormTests.AMOUNT_POSTS_EACH_USER
+        amount_pages = PostsFormTests.AMOUNT_PAGES
+        amount_of_posts_on_pages = []
+        for i in range(1, amount_pages):
+            amount_of_posts_on_pages.append(settings.MAX_PAGE_AMOUNT)
+        amount_of_posts_on_pages.append(
+            amount_posts_each_user * amount_users
+            - settings.MAX_PAGE_AMOUNT * (amount_pages - 1)
+        )
+        for page in range(amount_pages):
             with self.subTest(page=page + 1):
                 response = self.guest_client.get(reverse(
                     'posts:index') + '?page=' + str(page + 1))
                 self.assertEqual(len(
                     response.context.get('page_obj')),
-                    number_of_posts_on_page[page])
+                    amount_of_posts_on_pages[page])
 
     def test_cache(self):
         """Тестирование работы кэша index"""
-        posts = PostsFormTests.posts
-        last_post = posts[0]
+        last_post = Post.objects.first()
         last_post.text = 'Пост для проверки кэша'
         last_post.save()
-        response_one = self.guest_client.get(reverse(
+        self.guest_client.get(reverse(
             'posts:index') + '?page=1')
         last_post.delete()
-        self.assertContains(response_one, last_post.text)
-        cache.clear()
         response_two = self.guest_client.get(reverse(
             'posts:index') + '?page=1')
-        self.assertNotContains(response_two, last_post.text)
+        self.assertContains(response_two, last_post.text)
+        cache.clear()
+        response_three = self.guest_client.get(reverse(
+            'posts:index') + '?page=1')
+        self.assertNotContains(response_three, last_post.text)
 
     def test_new_post_shows_for_sub(self):
         """Новая запись автора появляется в ленте тех, у подписчиков """
@@ -253,6 +294,8 @@ class PostsFormTests(TestCase):
             kwargs={'username': self.user_1.username}
         ))
         self.assertEqual(Follow.objects.all().count(), follow_count + 1)
+        self.assertEqual(Follow.objects.last.user, self.user_1)
+        self.assertEqual(Follow.objects.last.author, self.user_2)
 
     def unfollow_is_created_correct(self):
         """Тестирование отписки"""

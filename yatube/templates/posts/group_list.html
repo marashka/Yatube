@@ -4,8 +4,8 @@
   <div class="container py-5">
     <h1>{{ group.title }}</h1>
     <p>{{ group.description }}</p>
-    <article>
       {% for post in page_obj %}
+      <article>
         {% include "includes/article.html" with author_link="все посты ползователя" %}
         {% if not forloop.last %}<hr>{% endif %}
       {% endfor %}

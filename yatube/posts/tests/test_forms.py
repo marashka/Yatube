@@ -24,14 +24,14 @@ class PostsFormTests(TestCase):
         test_shell.create_groups(2)
         test_shell.create_posts(5)
         test_shell.uploaded_test_gif()
+        cls.test_gif_1 = test_shell.get_test_gif()
+        test_shell.uploaded_test_gif()
+        cls.test_gif_2 = test_shell.get_test_gif()
         cls.user, = test_shell.get_users()
         cls.group_1, cls.group_2 = test_shell.get_groups()
         cls.posts = test_shell.get_posts()
-        cls.test_gif = test_shell.get_test_gif()
 
-    @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
+    def tearDown(self):
         shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
 
     def setUp(self):
@@ -44,8 +44,7 @@ class PostsFormTests(TestCase):
         """Проверка создания поста"""
         group_2 = PostsFormTests.group_2
         posts_count = Post.objects.count()
-        test_gif = PostsFormTests.test_gif
-
+        test_gif = PostsFormTests.test_gif_1
         form_data = {
             'text': 'Новый пост',
             'group': group_2.id,
@@ -74,9 +73,11 @@ class PostsFormTests(TestCase):
         """Проверка редактирования"""
         group_2 = PostsFormTests.group_2
         posts_count = Post.objects.count()
+        test_gif = PostsFormTests.test_gif_2
         form_data = {
             'text': 'Edit Post',
-            'group': group_2.id
+            'group': group_2.id,
+            'image': test_gif,
         }
         response = self.authorized_client.post(
             reverse('posts:post_edit', kwargs={'post_id': '1'}),
@@ -92,7 +93,8 @@ class PostsFormTests(TestCase):
         compared_names = (
             (form_data['text'], edit_post_text),
             (group_2, edit_post_group),
-            (self.user, edit_post_author)
+            (self.user, edit_post_author),
+            ('posts/small.gif', Post.objects.last().image.name)
         )
         for expected_name, test_name in compared_names:
             with self.subTest(expected_name=expected_name):

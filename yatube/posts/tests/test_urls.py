@@ -27,8 +27,6 @@ class PostsFormTests(TestCase):
         self.authorized_client_1.force_login(self.user_1)
         self.authorized_client_2.force_login(self.user_2)
         self.group_2 = PostsFormTests.group_2
-
-    def tearDown(self):
         cache.clear()
 
     def test_url_correct(self):
@@ -44,7 +42,8 @@ class PostsFormTests(TestCase):
                 'posts:post_detail', kwargs={'post_id': '1'})),
             (self.authorized_client_1, reverse('posts:post_create')),
             (self.authorized_client_1, reverse(
-                'posts:post_edit', kwargs={'post_id': '1'}))
+                'posts:post_edit', kwargs={'post_id': '1'})),
+            (self.authorized_client_1, reverse('posts:follow_index')),
         )
         for client, url in client_url_names:
             with self.subTest(url=url):
@@ -74,6 +73,7 @@ class PostsFormTests(TestCase):
             'posts:post_detail', kwargs={'post_id': '1'}))
 
     def test_postedit_create_redirect_unauthorized_client(self):
+        """"Проверка редиректа неавторизованного пользователя"""
         url_redirect_names = (
             (reverse('posts:post_create'), reverse(
                 'users:login') + '?next=/create/'),
@@ -99,6 +99,7 @@ class PostsFormTests(TestCase):
             ('posts/create_post.html', reverse('posts:post_create')),
             ('posts/create_post.html', reverse(
                 'posts:post_edit', kwargs={'post_id': '1'})),
+            ('posts/follow.html', reverse('posts:follow_index'))
         )
         for template, url in template_url_names:
             with self.subTest(url=url):

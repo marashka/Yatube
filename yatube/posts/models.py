@@ -71,6 +71,10 @@ class Comment(models.Model):
     )
     text = models.TextField(verbose_name='Коментарий')
 
+    class Meta:
+        verbose_name = 'Коментарии'
+        verbose_name_plural = 'Коментарии'
+
     def __str__(self):
         return self.text[:15]
 
@@ -88,3 +92,10 @@ class Follow(models.Model):
         related_name='following',
         verbose_name='Автор'
     )
+
+    class Meta:
+        verbose_name = 'Подписки'
+        verbose_name_plural = 'Подписки'
+
+    def __str__(self):
+        return self.author.username
